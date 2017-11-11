@@ -1,0 +1,15 @@
+language: go
+os:
+  - linux
+  - osx
+go:
+  - go1.9
+script:
+# geoloc
+- cd ./geoloc
+- go get ./...
+- go test -v -cover ./...
+## geoloc examples
+- cd ./_examples
+- go test -v -cover ./...
+- cd ../../
