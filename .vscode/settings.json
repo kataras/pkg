@@ -3,7 +3,7 @@
     "editor.fontFamily": "'Fira Code'",
     "editor.fontWeight": "400",
     "editor.renderIndentGuides": false,
-    "editor.fontSize": 13,
+    "editor.fontSize": 14,
     "editor.fontLigatures": true, 
     "editor.cursorStyle": "line",
     "editor.cursorBlinking": "smooth",
@@ -20,7 +20,7 @@
     },
     // Specifies Lint tool name.
     "go.lintTool": "golint",
-    "window.zoomLevel": 1,
+    "window.zoomLevel": 2,
     "window.restoreWindows": "one",
     "editor.minimap.enabled": true,
     "files.autoSave": "off",
