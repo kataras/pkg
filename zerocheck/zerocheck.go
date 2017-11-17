@@ -11,11 +11,6 @@ func IsZero(v reflect.Value) bool {
 	case reflect.Struct:
 		zero := true
 		for i := 0; i < v.NumField(); i++ {
-			f := v.Field(i)
-			// if it's
-			if f.Type().PkgPath() != "" {
-
-			}
 			zero = zero && IsZero(v.Field(i))
 		}
 

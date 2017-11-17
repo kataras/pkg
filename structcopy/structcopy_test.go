@@ -1,9 +1,11 @@
-package structcopy
+package structcopy_test
 
 import (
 	"reflect"
 	"testing"
 	"time"
+
+	. "github.com/kataras/pkg/structcopy"
 )
 
 type emb struct {

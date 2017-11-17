@@ -1,8 +1,10 @@
-package zerocheck
+package zerocheck_test
 
 import (
 	"reflect"
 	"testing"
+
+	. "github.com/kataras/pkg/zerocheck"
 )
 
 type testStruct struct {
