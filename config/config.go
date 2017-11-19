@@ -2,7 +2,7 @@ package config
 
 import (
 	"errors"
-	"fmt"
+	"flag"
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/kataras/pkg/zerocheck"
-	"github.com/kataras/survey"
 	"gopkg.in/yaml.v2"
 )
 
@@ -27,7 +26,9 @@ import (
 // All options are prefixed with the words: "With" or "Without".
 type options struct {
 	disableSurvey bool
-	fileDecoder   FileDecoder
+	// if not nil then it will scan for flags after the file loading, file is always first but it can be disabled.
+	flagSet     *flag.FlagSet
+	fileDecoder FileDecoder
 	/// TODO:
 	// if users ask then it will be a good idea
 	// to add a loader via os environment variables as well.
@@ -40,6 +41,21 @@ type Option func(o *options)
 // Defaults to false; survey is enabled.
 func WithoutSurvey(o *options) {
 	o.disableSurvey = true
+}
+
+// CommandLine flagset is a shortcut for the `flag.CommandLine`
+// so end-users wont have to import the flag package to use the `WithFlags`.
+var CommandLine = flag.CommandLine
+
+// WithFlags enables the config to be loaded from specific flag set( i.e flag.CommandLine).
+// The flags may or may not be parsed before.
+//
+// Note that the end-user should declare the needed flags otherwise this will PANIC (at least for now).
+// It scans the flags after the file decoder and before the survey; loading from file is always first action but it can be disabled if needed.
+func WithFlags(set *flag.FlagSet) Option {
+	return func(o *options) {
+		o.flagSet = set
+	}
 }
 
 // FileDecoder is the supported kind of function that
@@ -76,10 +92,11 @@ func ok(dest interface{}) bool {
 	return true
 }
 
-// Load loads a specific YAML configuration file
-// and sets that to "dest".
+// Load fills the "dest", which should be a non-nil pointer to a struct value,
+// based a specific configuration file,
+// by default YAML but this can be changed with an `Option`.
 // If the configuration file didn't contain any sensetive fields
-// and the fields are tagged as 'required' then
+// and the fields are not tagged as 'config:"-"' then
 // it prompts the user to define these fields' values from
 // the `os.Stdin` using the survey package.
 //
@@ -97,6 +114,7 @@ func Load(fullpath string, dest interface{}, optional ...Option) error {
 	opts := options{
 		fileDecoder:   yaml.Unmarshal,
 		disableSurvey: false,
+		flagSet:       nil,
 	}
 
 	for _, opt := range optional {
@@ -119,165 +137,179 @@ func Load(fullpath string, dest interface{}, optional ...Option) error {
 		// file decoder was disabled.
 		// nothing to set, file load disabled and survey has nothing to ask, so pass
 		// nil as the prev error.
-		return tryToAsk(dest, nil, opts)
+		return next(dest, nil, opts)
 	}
 
 	// get the abs
 	// which will try to find the 'fullpath' from current workind dir too.
-	yamlAbsPath, err := filepath.Abs(fullpath)
+	f, err := filepath.Abs(fullpath)
 	if err != nil {
-		return tryToAsk(dest, err, opts)
+		return next(dest, err, opts)
 	}
 
 	// read the raw contents of the file.
-	data, err := ioutil.ReadFile(yamlAbsPath)
+	data, err := ioutil.ReadFile(f)
 	if err != nil {
-		return tryToAsk(dest, err, opts)
+		return next(dest, err, opts)
 	}
 
 	// convert the file's contents to the configuration and keep the error.
 	err = opts.fileDecoder(data, dest)
 
-	return tryToAsk(dest, err, opts)
+	return next(dest, err, opts)
 }
 
-func tryToAsk(dest interface{}, prev error, opts options) error {
+func next(dest interface{}, prev error, opts options) error {
+	if opts.flagSet != nil {
+		if err := TryLoadFlags(opts.flagSet, dest); err != nil {
+			return err
+		}
+	}
+
 	// try to ask;
 	// if not enabled then it will return the file decoder's error.
 	// if enabled but nothing to ask then it will return the file decoder's error.
 	// if enabled and asked, so settings are set-ed, then skip the file decoder's error and return nil.
 	if !opts.disableSurvey {
-		if asked := TryAsk(dest); !asked {
-			return prev
-		}
+		TryAsk(dest)
 	}
 
 	return prev
 }
 
-// TryAsk is called from `Load` if configuration file
-// didn't contain the 'required' configuration struct's fields
-// but it can be called manually as well, if that's needed.
-//
-// Remember, "dest" should be a pointer to a struct's instance.
-//
-// If not any field to be prompted for value then this function does nothing.
-// Returns true if it was something to ask, otherwise false.
-func TryAsk(dest interface{}) bool {
-	if !ok(dest) {
-		return false
-	}
-
+func visitMissingFields(dest interface{}, fn func(f field, fValue reflect.Value)) {
 	v := reflect.ValueOf(dest).Elem()
 	typElem := reflect.TypeOf(dest).Elem() // the struct's type.
-	fields := lookupFields(typElem, -1)
+	fields := lookupFields(typElem, field{})
 	for _, f := range fields {
 		fieldVal := v.FieldByIndex(f.Index)
-
-		var unusedAns interface{}
-
 		if f.Required && zerocheck.IsZero(fieldVal) {
-			fieldTyp := fieldVal.Type()
-			// this will error
-			// because it can't convert it correctly, that's why
-			// we have the set-logic into our custom makeValidator.
-			survey.AskOne(makePrompt(fieldTyp, f), &unusedAns, makeValidator(fieldTyp, fieldVal))
+			fn(f, fieldVal)
 		}
-	}
-
-	return true
-}
-
-func makePrompt(fieldTyp reflect.Type, f field) survey.Prompt {
-	fieldName := f.Name
-
-	// if it's a boolean then show a confirmation prompt.
-	if fieldTyp.Kind() == reflect.Bool {
-		return &survey.Confirm{
-			Help:    fmt.Sprintf("The provided type of '%s' should be %s.", fieldName, fieldTyp.Name()),
-			Message: fmt.Sprintf("%s?", fieldName),
-		}
-	}
-
-	// if it's a secret then show a password (replaces text to ****) prompt.
-	if f.Secret {
-		return &survey.Password{
-			Help:    fmt.Sprintf("The provided type of '%s' should be a secret of %s.", fieldName, fieldTyp.Name()),
-			Message: fmt.Sprintf("Please type the value for the setting '%s'", fieldName),
-		}
-	}
-
-	// otherwise show an input with a default value as well in parenthesis ().
-	zero := reflect.Zero(fieldTyp)
-	var def string
-	if zero.IsValid() && zero.CanInterface() {
-		def = fmt.Sprintf("%v", zero.Interface())
-	}
-
-	return &survey.Input{
-		Default: def,
-		Help:    fmt.Sprintf("The provided type of '%s' should be %s.", fieldName, fieldTyp.Name()),
-		Message: fmt.Sprintf("Please type the value for the setting '%s'", fieldName),
 	}
 }
 
-// SurveyTimeLayout is the layout that is used
+// check if gotValue is the same as fieldKind, if yes then set it's
+// second, check if it's string, then take that string and try to parse
+// in the fieldKind's value.
+func parseValue(gotValue interface{}, fieldTyp reflect.Type) (value interface{}) {
+	switch v := gotValue.(type) {
+	case bool:
+		return parseBool(v, fieldTyp)
+	case string:
+		return parseString(v, fieldTyp)
+	case int:
+		return parseInt(v, fieldTyp)
+	default:
+		return nil
+	}
+}
+
+// TimeLayout is the layout that is used
 // when a field is a time.Time type and it's required.
 // the user type a time in string, and in order to this
 // string to be converted to a time.Time and be set-ed
 // to the setting field it needs to have a known layout.
 //
 // Defaults to "Mon, 02 Jan 2006 15:04:05 GMT".
-var SurveyTimeLayout = "Mon, 02 Jan 2006 15:04:05 GMT"
+var TimeLayout = "Mon, 02 Jan 2006 15:04:05 GMT"
 
-func makeValidator(fieldTyp reflect.Type, fieldVal reflect.Value) survey.Validator {
-	return func(answer interface{}) error {
-		// answer can be bool(if confirmation) or string otherwise.
-		if _, ok := answer.(bool); ok {
-			// if it was bool, then we're ready to set it as it's.
-			fieldVal.Set(reflect.ValueOf(answer))
-			return nil
+// parses a string based on the wanted field's type of kind and
+// returns the result value that will be set-ed to the field by the caller.
+func parseString(got string, fieldTyp reflect.Type) (value interface{}) {
+	want := fieldTyp.Kind()
+	switch want {
+	case reflect.String:
+		return got // we had a string and we want a string, just return.
+	case reflect.Int:
+		// we could use dynamic "bits" variable but we don't.
+		value, _ = strconv.Atoi(got)
+	case reflect.Int32:
+		value, _ = strconv.ParseInt(got, 10, 32)
+	case reflect.Int64:
+		value, _ = strconv.ParseInt(got, 10, 64)
+	case reflect.Float32:
+		value, _ = strconv.ParseFloat(got, 32)
+	case reflect.Float64:
+		value, _ = strconv.ParseInt(got, 10, 64)
+	case reflect.Bool:
+		// this is already checked before but keep for future, if I decide to remove confirmation dialogs.
+		value, _ = strconv.ParseBool(got)
+	case reflect.Slice:
+		value = strings.Split(got, ",")
+	case reflect.Struct:
+		if fieldTyp.AssignableTo(reflect.TypeOf(time.Time{})) {
+			// if setting is a struct and it's time.
+			value, _ = time.Parse(TimeLayout, got)
 		}
-
-		var got interface{}
-
-		ans, ok := answer.(string)
-		// this will never errored with the current survey's implementation but we make
-		// this check for good and worst.
-		if !ok {
-			gotTyp := reflect.TypeOf(answer)
-			return fmt.Errorf("invalid type of value passed, expected: %s but got %s", fieldTyp.Name(), gotTyp.Name())
-		}
-
-		switch fieldTyp.Kind() {
-		case reflect.Int:
-			// we could use dynamic "bits" variable but we don't.
-			got, _ = strconv.Atoi(ans)
-		case reflect.Int32:
-			got, _ = strconv.ParseInt(ans, 10, 32)
-		case reflect.Int64:
-			got, _ = strconv.ParseInt(ans, 10, 64)
-		case reflect.Float32:
-			got, _ = strconv.ParseFloat(ans, 32)
-		case reflect.Float64:
-			got, _ = strconv.ParseInt(ans, 10, 64)
-		case reflect.Bool:
-			// this is already checked before but keep for future, if I decide to remove confirmation dialogs.
-			got, _ = strconv.ParseBool(ans)
-		case reflect.Slice:
-			got = strings.Split(ans, ",")
-		case reflect.Struct:
-			if fieldTyp.AssignableTo(reflect.TypeOf(time.Time{})) {
-				// if setting is a struct and it's time.
-				got, _ = time.Parse(SurveyTimeLayout, ans)
-			}
-		default:
-			got = ans
-		}
-
-		fieldVal.Set(reflect.ValueOf(got))
-		return nil
 	}
+
+	return
+}
+
+// parseInt parses an int based on the wanted field's type of kind and
+// returns the result value that will be set-ed to the field by the caller.
+func parseInt(got int, fieldTyp reflect.Type) (value interface{}) {
+	want := fieldTyp.Kind()
+	switch want {
+	case reflect.String:
+		return strconv.Itoa(got)
+	case reflect.Int:
+		// we had an int and we want an int, just return.
+		return got
+	case reflect.Int32:
+		// b := byte(got % 256)
+		return int32(got)
+	case reflect.Int64:
+		return int64(got)
+	case reflect.Float32:
+		return float32(got)
+	case reflect.Float64:
+		return float64(got)
+	case reflect.Bool:
+		if got <= 0 {
+			return false
+		}
+		return true
+	}
+	return nil
+}
+
+func parseBool(got bool, fieldTyp reflect.Type) interface{} {
+	want := fieldTyp.Kind()
+	switch want {
+	case reflect.String:
+		return strconv.FormatBool(got)
+	case reflect.Int:
+		if !got {
+			return 0
+		}
+		return 1
+	case reflect.Int32:
+		if !got {
+			return int32(0)
+		}
+		return int32(1)
+	case reflect.Int64:
+		if !got {
+			return int64(0)
+		}
+		return int64(1)
+	case reflect.Float32:
+		if !got {
+			return float32(0)
+		}
+		return float32(1)
+	case reflect.Float64:
+		if !got {
+			return float64(0)
+		}
+		return float64(1)
+	case reflect.Bool:
+		return got
+	}
+
+	return nil
 }
 
 func isZero(v reflect.Value) bool {

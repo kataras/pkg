@@ -73,7 +73,7 @@ func isSecret(f reflect.StructField) bool {
 	return containsTagValue(f, "password") || containsTagValue(f, "secret")
 }
 
-func lookupFields(typ reflect.Type, parentIndex int) (fields []field) {
+func lookupFields(typ reflect.Type, parent field) (fields []field) {
 	for i, n := 0, typ.NumField(); i < n; i++ {
 		f := typ.Field(i)
 
@@ -81,20 +81,27 @@ func lookupFields(typ reflect.Type, parentIndex int) (fields []field) {
 			continue // skip pointers.
 		}
 
+		index := []int{i}
+
 		// embedded.
 		if f.Type.Kind() == reflect.Struct && !structFieldIgnored(f) {
-			fields = append(fields, lookupFields(f.Type, i)...)
+			fields = append(fields, lookupFields(f.Type, field{
+				Name:  f.Name,
+				Index: index,
+			})...)
 			continue
 		}
 
 		required := isRequired(f)
-		index := []int{i}
-		if parentIndex >= 0 {
-			index = append([]int{parentIndex}, index...)
+		name := f.Name
+
+		if len(parent.Index) > 0 && parent.Index[0] >= 0 {
+			index = append(parent.Index, index...)
+			name = parent.Name + "." + name
 		}
 
 		field := field{
-			Name:     f.Name,
+			Name:     name,
 			Index:    index,
 			Required: required,
 			Secret:   isSecret(f),

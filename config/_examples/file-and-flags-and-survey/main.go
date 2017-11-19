@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 
 	"github.com/kataras/pkg/config"
@@ -28,8 +29,10 @@ type (
 		Debug bool `yaml:"Debug"`
 		// a required boolean, should be asked from survey and have a default value of 'false'.
 		Required bool `yaml:"Required"`
-		// a required integer, should be asked from survey as confirmation.
+
+		// a required integer, should be set-ed by the command line as flag's value, if not then it will be asked from survey.
 		Year int `yaml:"Year"`
+		//
 
 		// unexported fields are ignored.
 		unexportedIgnored string `yaml:"unexportedIgnored"`
@@ -41,10 +44,12 @@ type (
 	}
 )
 
-// $ go run main.go
+// $ go run main.go -year 2017
 func main() {
+	flag.Int("year", 0, "set the year")
+
 	c := configuration{ServerName: "iris: https://iris-go.com"}
-	if err := config.Load("./config_example.yml", &c); err != nil {
+	if err := config.Load("./config_example.yml", &c, config.WithFlags(flag.CommandLine)); err != nil {
 		panic(err)
 	}
 

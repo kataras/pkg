@@ -1,0 +1,5 @@
+Author: kataras
+ExportedIgnored: This should not be passed to the configuration
+unexportedIgnored: This should not be passed to the configuration
+DBCredentials: 
+  Host: "iris-go.com"
