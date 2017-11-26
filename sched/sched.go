@@ -52,6 +52,26 @@ func Schedule(when time.Duration, job interface{}, jobInput ...interface{}) (can
 		return emptyCancel, err
 	}
 
+	fn := reflect.ValueOf(job)
+	if fn.Kind() != reflect.Func {
+		err := fmt.Errorf("scheduler: 'job' is not a function")
+		golog.Error(err)
+		return emptyCancel, err
+	}
+
+	// if 'job' is a simple function with zero input and output args,
+	// then pass it as it's on the `time.AfterFunc` without reflection-performance penalties.
+	if typ := fn.Type(); typ.NumIn() == 0 && typ.NumOut() == 0 {
+		if n := len(jobInput); n > 0 {
+			golog.Warnf("scheduler: job's input arguments length is %d but job does not except any of them", n)
+		}
+		if jobFunc, ok := job.(func()); ok {
+			t := time.AfterFunc(when, jobFunc)
+			return t.Stop, nil
+		}
+	}
+
+	// parse input, validate them and execute the job's passing those 'jobInputs'.
 	in := emptyIn
 
 	if n := len(jobInput); n > 0 {
@@ -65,13 +85,6 @@ func Schedule(when time.Duration, job interface{}, jobInput ...interface{}) (can
 			}
 			in[i] = v
 		}
-	}
-
-	fn := reflect.ValueOf(job)
-	if fn.Kind() != reflect.Func {
-		err := fmt.Errorf("scheduler: 'job' is not a function")
-		golog.Error(err)
-		return emptyCancel, err
 	}
 
 	t := time.AfterFunc(when, func() {
