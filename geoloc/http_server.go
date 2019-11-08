@@ -3,15 +3,15 @@ package geoloc
 import (
 	"regexp"
 
-	"github.com/kataras/iris"
-	"github.com/kataras/iris/context"
+	"github.com/kataras/iris/v12"
+	"github.com/kataras/iris/v12/context"
 )
 
 // Optionally http server.
 
 var regexIP, _ = regexp.Compile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
 
-func h(ctx context.Context, ip string) {
+func h(ctx iris.Context, ip string) {
 	if !regexIP.MatchString(ip) {
 		ctx.NotFound()
 		return

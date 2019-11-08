@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/kataras/survey"
+	"github.com/AlecAivazis/survey/v2"
 )
 
 // TryAsk is called from `Load` if configuration file

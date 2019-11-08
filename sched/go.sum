@@ -1,0 +1,4 @@
+github.com/kataras/golog v0.0.9 h1:J7Dl82843nbKQDrQM/abbNJZvQjS6PfmkkffhOTXEpM=
+github.com/kataras/golog v0.0.9/go.mod h1:12HJgwBIZFNGL0EJnMRhmvGA0PQGx8VFwrZtM4CqbAk=
+github.com/kataras/pio v0.0.0-20190103105442-ea782b38602d h1:V5Rs9ztEWdp58oayPq/ulmlqJJZeJP6pP79uP3qjcao=
+github.com/kataras/pio v0.0.0-20190103105442-ea782b38602d/go.mod h1:NV88laa9UiiDuX9AhMbDPkGYSPugBOV6yTZB1l2K9Z0=
