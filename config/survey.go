@@ -62,8 +62,8 @@ func makePrompt(fieldTyp reflect.Type, f field) survey.Prompt {
 	}
 }
 
-func makeValidator(fieldTyp reflect.Type, fieldVal reflect.Value) survey.Validator {
-	return func(gotValue interface{}) error {
+func makeValidator(fieldTyp reflect.Type, fieldVal reflect.Value) survey.AskOpt {
+	validator := func(gotValue interface{}) error {
 		// gotValue can be bool(if confirmation) or string otherwise.
 		if _, ok := gotValue.(bool); ok {
 			// if it was bool, then we're ready to set it as it's.
@@ -79,6 +79,11 @@ func makeValidator(fieldTyp reflect.Type, fieldVal reflect.Value) survey.Validat
 		}
 
 		fieldVal.Set(reflect.ValueOf(value))
+		return nil
+	}
+
+	return func(options *survey.AskOptions) error {
+		options.Validators = append(options.Validators, validator)
 		return nil
 	}
 }
